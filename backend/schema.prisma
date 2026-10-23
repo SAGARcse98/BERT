@@ -1,0 +1,64 @@
+// BERT — Intelligent Resume Analyzer & ATS
+// Prisma Database Schema (PostgreSQL / Supabase compatible)
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum CandidateStatus {
+  Pending
+  Selected
+  Rejected
+}
+
+model JobOpening {
+  id              String      @id @default(cuid())
+  title           String
+  department      String
+  location        String
+  minExperience   Float       @default(2.0)
+  requiredSkills  String[]
+  description     String      @db.Text
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  candidates      Candidate[]
+}
+
+model Candidate {
+  id                    String          @id @default(cuid())
+  jobId                 String
+  job                   JobOpening      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  name                  String
+  email                 String
+  phone                 String?
+  location              String?
+  currentRole           String
+  yearsOfExperience     Float
+  education             String
+  bertMatchScore        Int
+  semanticRelevance     Float
+  skillOverlap          Float
+  experienceAlignment   Float
+  matchedSkills         String[]
+  missingCriticalSkills String[]
+  allSkills             String[]
+  aiRecommendation      String
+  aiInsights            String[]
+  status                CandidateStatus @default(Pending)
+  recruiterNotes        String          @default("")
+  resumeFilename        String
+  rawResumeText         String          @db.Text
+  embeddingModel        String          @default("sentence-transformers/all-MiniLM-L6-v2")
+  analyzedAt            DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  @@index([jobId, bertMatchScore(sort: Desc)])
+  @@index([status])
+}
+

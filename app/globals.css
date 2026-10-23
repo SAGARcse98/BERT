@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 245 244 246;
+    --foreground: 24 24 27;
+  }
+
+  .dark {
+    --background: 20 20 23;
+    --foreground: 244 244 245;
+  }
+
+  body {
+    font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+    background-color: #f5f4f6;
+    color: #18181b;
+    letter-spacing: -0.01em;
+  }
+
+  .dark body {
+    background-color: #141417;
+    color: #f4f4f5;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f0f2;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d4d2d8;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #e11d48;
+}
