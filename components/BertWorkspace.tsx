@@ -7,6 +7,8 @@ import { useBertStore } from "@/lib/store";
 import { ActiveNavTab } from "@/lib/types";
 import { Sidebar } from "./Sidebar";
 import { CandidateRankingTable } from "./CandidateRankingTable";
+import { CandidateKanbanBoard } from "./CandidateKanbanBoard";
+import { TalentPoolInsights } from "./TalentPoolInsights";
 import { CandidateDrawer } from "./CandidateDrawer";
 import { CandidateComparisonModal } from "./CandidateComparisonModal";
 import { ResumeIngestionFlow } from "./ResumeIngestionFlow";
@@ -27,6 +29,8 @@ export function BertWorkspace({
     theme,
     activeTab,
     setActiveTab,
+    viewMode,
+    setViewMode,
     jobs,
     activeJobId,
     setActiveJobId,
@@ -99,6 +103,33 @@ export function BertWorkspace({
           </div>
 
           <div className="flex items-center gap-3">
+            {(activeTab === "dashboard" || activeTab === "candidates") && (
+              <div className="flex items-center gap-1 p-1 rounded-xl bg-zinc-200/80 dark:bg-zinc-800 border border-zinc-300/70 dark:border-zinc-700">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("table")}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold transition-all ${
+                    viewMode === "table"
+                      ? "bg-white dark:bg-zinc-900 text-rose-700 dark:text-rose-300 shadow-xs"
+                      : "text-zinc-600 dark:text-zinc-400"
+                  }`}
+                >
+                  Table View
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("board")}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-extrabold transition-all ${
+                    viewMode === "board"
+                      ? "bg-white dark:bg-zinc-900 text-rose-700 dark:text-rose-300 shadow-xs"
+                      : "text-zinc-600 dark:text-zinc-400"
+                  }`}
+                >
+                  Board View
+                </button>
+              </div>
+            )}
+
             <Link
               href={`/jobs/${activeJob.id}/upload`}
               onClick={() => setActiveTab("upload")}
@@ -223,10 +254,17 @@ export function BertWorkspace({
                     </motion.div>
                   ))}
                 </div>
+
+                {/* Role Talent Pool Insights (Score Tier Bar + Skill Bottlenecks) */}
+                <TalentPoolInsights />
               </div>
 
-              {/* Candidate Ranking & Action Table */}
-              <CandidateRankingTable showAllJobs={false} />
+              {/* Candidate Ranking Table OR Kanban Pipeline Board */}
+              {viewMode === "table" ? (
+                <CandidateRankingTable showAllJobs={false} />
+              ) : (
+                <CandidateKanbanBoard showAllJobs={false} />
+              )}
             </>
           )}
 
@@ -242,7 +280,11 @@ export function BertWorkspace({
                   All Candidates ({candidates.length})
                 </h1>
               </div>
-              <CandidateRankingTable showAllJobs={true} />
+              {viewMode === "table" ? (
+                <CandidateRankingTable showAllJobs={true} />
+              ) : (
+                <CandidateKanbanBoard showAllJobs={true} />
+              )}
             </div>
           )}
 

@@ -18,14 +18,103 @@ export interface ToastItem {
   variant: "emerald" | "rose" | "neutral" | "amber";
 }
 
+function recalculateCandidateForJob(
+  candidate: Candidate,
+  job: JobOpening,
+  config: BertModelConfig
+): Candidate {
+  const knownCandidateSkills = new Set(
+    [
+      ...candidate.matchedSkills,
+      ...candidate.resumeSummary.split(/[\s,.;()/]+/),
+      ...candidate.resumeSections.flatMap((s) =>
+        s.items.flatMap((i) => i.bullets.join(" ").split(/[\s,.;()/]+/))
+      ),
+    ].map((s) => s.toLowerCase())
+  );
+
+  const fullCorpus = [
+    candidate.matchedSkills.join(" "),
+    candidate.resumeSummary,
+    candidate.currentRole,
+    candidate.resumeSections
+      .flatMap((s) => s.items.flatMap((i) => [i.title, ...i.bullets]))
+      .join(" "),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  const matchedSkills: string[] = [];
+  const missingCriticalSkills: string[] = [];
+
+  for (const reqSkill of job.requiredSkills) {
+    const lowerReq = reqSkill.toLowerCase();
+    if (
+      knownCandidateSkills.has(lowerReq) ||
+      fullCorpus.includes(lowerReq)
+    ) {
+      matchedSkills.push(reqSkill);
+    } else {
+      missingCriticalSkills.push(reqSkill);
+    }
+  }
+
+  const skillOverlap = Math.round(
+    (matchedSkills.length / Math.max(1, job.requiredSkills.length)) * 100
+  );
+
+  const expRatio =
+    job.minExperience > 0
+      ? candidate.yearsOfExperience / job.minExperience
+      : 1.1;
+  const experienceAlignment = Math.min(
+    100,
+    Math.max(30, Math.round(expRatio * 88))
+  );
+
+  const semanticRelevance = candidate.scoreBreakdown.semanticRelevance;
+
+  const totalWeight =
+    config.semanticWeight + config.skillWeight + config.experienceWeight || 100;
+  const wSem = config.semanticWeight / totalWeight;
+  const wSkill = config.skillWeight / totalWeight;
+  const wExp = config.experienceWeight / totalWeight;
+
+  const bertMatchScore = Math.min(
+    99,
+    Math.max(
+      20,
+      Math.round(
+        semanticRelevance * wSem +
+          skillOverlap * wSkill +
+          experienceAlignment * wExp
+      )
+    )
+  );
+
+  return {
+    ...candidate,
+    matchedSkills,
+    missingCriticalSkills,
+    bertMatchScore,
+    scoreBreakdown: {
+      semanticRelevance,
+      skillOverlap,
+      experienceAlignment,
+    },
+  };
+}
+
 interface BertStoreState {
   // Theme (Default: Light Rose & Warm Grey)
   theme: "light" | "dark";
   toggleTheme: () => void;
 
-  // Navigation
+  // Navigation & View Mode
   activeTab: ActiveNavTab;
   setActiveTab: (tab: ActiveNavTab) => void;
+  viewMode: "table" | "board";
+  setViewMode: (mode: "table" | "board") => void;
 
   // Jobs & Active Role
   jobs: JobOpening[];
@@ -49,6 +138,7 @@ interface BertStoreState {
   ) => void;
   updateCandidateNotes: (candidateId: string, notes: string) => void;
   addAnalyzedCandidates: (newCandidates: Candidate[]) => void;
+  recalculateAllScores: () => void;
 
   // Side-by-Side Candidate Comparison
   comparisonCandidateIds: string[];
@@ -90,6 +180,8 @@ export const useBertStore = create<BertStoreState>()(
 
       activeTab: "dashboard",
       setActiveTab: (tab) => set({ activeTab: tab }),
+      viewMode: "table",
+      setViewMode: (viewMode) => set({ viewMode }),
 
       jobs: INITIAL_JOBS,
       activeJobId: INITIAL_JOBS[0].id,
@@ -99,11 +191,31 @@ export const useBertStore = create<BertStoreState>()(
           skillFilter: null,
         }),
       updateJob: (jobId, updates) =>
-        set((state) => ({
-          jobs: state.jobs.map((j) =>
+        set((state) => {
+          const updatedJobs = state.jobs.map((j) =>
             j.id === jobId ? { ...j, ...updates } : j
-          ),
-        })),
+          );
+          const targetJob = updatedJobs.find((j) => j.id === jobId);
+
+          // Automatically re-score candidates for this job if skills or minExperience changed
+          const shouldRescore =
+            targetJob &&
+            (updates.requiredSkills !== undefined ||
+              updates.minExperience !== undefined);
+
+          const updatedCandidates = shouldRescore
+            ? state.candidates.map((c) =>
+                c.jobId === jobId
+                  ? recalculateCandidateForJob(c, targetJob!, state.modelConfig)
+                  : c
+              )
+            : state.candidates;
+
+          return {
+            jobs: updatedJobs,
+            candidates: updatedCandidates,
+          };
+        }),
       addJob: (newJob) => {
         set((state) => ({
           jobs: [newJob, ...state.jobs],
@@ -115,7 +227,8 @@ export const useBertStore = create<BertStoreState>()(
           variant: "emerald",
         });
 
-        const backendUrl = get().modelConfig.backendUrl || "http://localhost:8000";
+        const backendUrl =
+          get().modelConfig.backendUrl || "http://localhost:8000";
         fetch(`${backendUrl}/api/jobs`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -248,6 +361,25 @@ export const useBertStore = create<BertStoreState>()(
         }));
       },
 
+      recalculateAllScores: () => {
+        set((state) => {
+          const jobMap = new Map(state.jobs.map((j) => [j.id, j]));
+          return {
+            candidates: state.candidates.map((c) => {
+              const job = jobMap.get(c.jobId);
+              return job
+                ? recalculateCandidateForJob(c, job, state.modelConfig)
+                : c;
+            }),
+          };
+        });
+        get().addToast({
+          title: "All candidate scores recalculated",
+          description: "Rankings updated using current role skills and weights.",
+          variant: "emerald",
+        });
+      },
+
       comparisonCandidateIds: [],
       toggleComparisonCandidate: (id) =>
         set((state) => {
@@ -303,9 +435,26 @@ export const useBertStore = create<BertStoreState>()(
         autoRejectThreshold: 45,
       },
       updateModelConfig: (updates) =>
-        set((state) => ({
-          modelConfig: { ...state.modelConfig, ...updates },
-        })),
+        set((state) => {
+          const nextConfig = { ...state.modelConfig, ...updates };
+          const weightsChanged =
+            updates.semanticWeight !== undefined ||
+            updates.skillWeight !== undefined ||
+            updates.experienceWeight !== undefined;
+
+          if (!weightsChanged) {
+            return { modelConfig: nextConfig };
+          }
+
+          const jobMap = new Map(state.jobs.map((j) => [j.id, j]));
+          return {
+            modelConfig: nextConfig,
+            candidates: state.candidates.map((c) => {
+              const job = jobMap.get(c.jobId);
+              return job ? recalculateCandidateForJob(c, job, nextConfig) : c;
+            }),
+          };
+        }),
       resetDemoData: () => {
         set({
           jobs: INITIAL_JOBS,
@@ -346,6 +495,7 @@ export const useBertStore = create<BertStoreState>()(
         activeJobId: state.activeJobId,
         candidates: state.candidates,
         modelConfig: state.modelConfig,
+        viewMode: state.viewMode,
       }),
     }
   )
