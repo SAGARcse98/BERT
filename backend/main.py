@@ -38,6 +38,11 @@ except ImportError:
     fitz = None  # type: ignore
 
 try:
+    from pypdf import PdfReader
+except ImportError:
+    PdfReader = None  # type: ignore
+
+try:
     import docx  # python-docx
 except ImportError:
     docx = None  # type: ignore
@@ -62,7 +67,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bert-ats")
 
-DB_PATH = Path(__file__).parent / "bert_ats.db"
+DB_PATH = (
+    Path("/tmp/bert_ats.db")
+    if os.getenv("VERCEL")
+    else Path(__file__).parent / "bert_ats.db"
+)
 
 
 # =====================================================================
@@ -325,7 +334,7 @@ class BERTResumeAnalyzer:
                     logger.warning(f"Failed to initialize LLM client: {exc}")
 
     def extract_text_from_pdf(self, file_bytes: bytes) -> str:
-        """Extract clean text from a PDF binary stream using PyMuPDF (fitz)."""
+        """Extract clean text from a PDF binary stream using PyMuPDF (fitz) or pypdf."""
         if fitz is not None:
             try:
                 doc = fitz.open(stream=file_bytes, filetype="pdf")
@@ -336,6 +345,16 @@ class BERTResumeAnalyzer:
                     return self._normalize_whitespace(cleaned)
             except Exception as exc:
                 logger.error(f"PyMuPDF extraction error: {exc}")
+
+        if PdfReader is not None:
+            try:
+                reader = PdfReader(io.BytesIO(file_bytes))
+                pages_text = [page.extract_text() or "" for page in reader.pages]
+                cleaned = "\n".join(pages_text).strip()
+                if cleaned:
+                    return self._normalize_whitespace(cleaned)
+            except Exception as exc:
+                logger.error(f"pypdf extraction error: {exc}")
 
         return self._fallback_text_decode(file_bytes)
 
